@@ -10,7 +10,7 @@
  *              who) labels it for the Mac's tuning (migration 0030). The Mac only listens from lights-out to
  *              the aircon's off time (wake + 30 min) and the night-sound Edge Function decides that, not this page.
  *   player     only when household_settings.live_video is true (System › Camera › Show live video, default off):
- *              go2rtc's own player in an iframe, 3K (living_hd) or Low data (living); with the stream lock on, the
+ *              go2rtc's own player in an iframe, always 3K (living_hd); with the stream lock on, the
  *              player URL carries a signed pass (useCameraEmbed). While it is off no ticket is fetched and no player
  *              is rendered.
  *   commands   collapsed: copyable Terminal commands for Erik's Mac (night listener, go2rtc, Tailscale Funnel).
@@ -26,7 +26,7 @@ import { useSoundLabels, withLabels } from '@/lib/soundLabels.ts';
 import { SoundChart } from '../charts/SoundChart.tsx';
 import { useChrome, systemHref } from '../nav.tsx';
 import { LabelTally, SoundMoments } from '../story/Sounds.tsx';
-import { SWITCHBOT_APP_URL, STREAM, STREAM_HD, useCameraEmbed, useCameraUrl } from '../system/camera.tsx';
+import { SWITCHBOT_APP_URL, STREAM_HD, useCameraEmbed, useCameraUrl } from '../system/camera.tsx';
 import { clock, usePlanClock } from '../system/model.ts';
 import { Button, Disclosure, Group, PageHeader, Row, Segmented, Skeleton, Status } from '../ui.tsx';
 import { DoorTimeline, HomeNow } from '../door/FrontDoor.tsx';
@@ -34,8 +34,6 @@ import sys from '../system/system.module.css';
 import s from './live.module.css';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
-const PREF = 'sleeplab.live.stream';
-type Quality = 'hd' | 'sd';
 
 const TS = '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
 const AGENT = 'gui/$(id -u)/com.sleeplab.go2rtc';
@@ -240,38 +238,14 @@ function NightSounds({ live, canWrite, video }: { live: boolean; canWrite: boole
 
 function Player({ live }: { live: boolean }) {
   const { url, error } = useCameraUrl(live);
-  const [quality, setQuality] = useState<Quality>('hd');
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(PREF) === 'sd') setQuality('sd');
-    } catch {
-      /* storage unavailable */
-    }
-  }, []);
-  const choose = (q: Quality) => {
-    setQuality(q);
-    try {
-      window.localStorage.setItem(PREF, q);
-    } catch {
-      /* ignore */
-    }
-  };
-  // With the stream lock on (System › Camera), the address carries a signed pass, fetched again for a new quality.
-  const { embed, error: ticketError } = useCameraEmbed(url, quality === 'hd' ? STREAM_HD : STREAM, live);
+  // Always 3K (2026-11-15: "make sure it's always in 3k"); the low-data stream is no longer offered.
+  const { embed, error: ticketError } = useCameraEmbed(url, STREAM_HD, live);
 
   return (
     <>
       <div className={s.playerHead}>
         <h3 className="label">Live video</h3>
-        <Segmented<Quality>
-          label="Picture"
-          value={quality}
-          onChange={choose}
-          options={[
-            { value: 'hd', label: '3K' },
-            { value: 'sd', label: 'Low data' },
-          ]}
-        />
+        <span className="sec">3K</span>
       </div>
       {url === undefined || embed === undefined ? (
         <Skeleton h={320} r="lg" />
@@ -281,7 +255,7 @@ function Player({ live }: { live: boolean }) {
             key={embed}
             className={sys.cameraFrame}
             src={embed}
-            title="Bedroom camera, live"
+            title="Front door camera, live"
             allow="fullscreen; autoplay; picture-in-picture"
             allowFullScreen
             referrerPolicy="no-referrer"
@@ -312,7 +286,7 @@ function Player({ live }: { live: boolean }) {
         )}
       </div>
       <p className={cx('cap', s.note)}>
-        3K is 2592 × 1620 at 15 frames a second, about 4 Mbit/s. Low data is 640 × 400, about 0.25 Mbit/s. It needs the Tailscale Funnel on (see the commands
+        3K is 2592 × 1620 at 15 frames a second, about 4 Mbit/s. It needs the Tailscale Funnel on (see the commands
         below). Turn the video off again in <a href={systemHref('camera')}>System › Camera</a>.
       </p>
     </>
