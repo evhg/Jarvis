@@ -27,6 +27,8 @@ export interface CameraSighting {
   clipPath?: string | null;
   /** Unknown pass: one entry per person (Mac face ids, snapshot object name, label once named). */
   people?: { faces: string[]; snapshot: string | null; label: string | null }[] | null;
+  /** Pass named as a whole in the app (migration 0042): the label chosen, or 'forget'. */
+  answered?: string | null;
   sample?: boolean;
 }
 
@@ -46,10 +48,17 @@ function toSighting(r: Row): CameraSighting {
     activity: str(r.activity),
     durationS: numOrNull(r.duration_s),
     clipPath: str(r.clip_path),
+    answered: str(r.answered),
     people: Array.isArray(r.people)
       ? (r.people as Row[]).map((p) => ({ faces: Array.isArray(p.faces) ? (p.faces as unknown[]).map(String) : [], snapshot: str(p.snapshot), label: str(p.label) }))
       : null,
   };
+}
+
+/** A guest label as a name: "our-nanny-p-rung" → "Nanny P Rung" (dashes to spaces, a leading "our" dropped). */
+export function guestName(label: string): string {
+  const words = label.replace(/^our[-_ ]+/i, '').split(/[-_ ]+/).filter(Boolean);
+  return words.map((w) => w[0]!.toUpperCase() + w.slice(1)).join(' ') || label;
 }
 
 /** Who a sighting shows: the person's name, the guest label, "Unknown person" or "Someone" (no face). */
@@ -57,7 +66,7 @@ export function sightingWho(e: Pick<CameraSighting, 'label' | 'personId'>, nameO
   if (e.personId) return nameOf(e.personId);
   if (e.label === UNKNOWN_LABEL) return 'Unknown person';
   if (e.label === PERSON_LABEL) return 'Someone';
-  return e.label;
+  return guestName(e.label);
 }
 
 /** Plausible sightings for the simulator: today, up to now, newest first. */

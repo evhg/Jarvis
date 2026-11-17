@@ -10,8 +10,8 @@
 // Rows go to public.camera_events (migration 0022); (camera, ts, label) is unique, so a retry stores nothing twice.
 // Pushes for entrance sightings come from the camera_events trigger (migration 0039). JWT verification is off: the
 // presence token is the credential.
-// Door clips (migration 0041, the Mac's brief face/JARVIS-door-clips.md): an unknown event with "wantClip": true and
-// "people": [{"faces": [...]}] gets "uploads" (signed upload URLs for its MP4 clip and one JPEG per person) in the
+// Door clips (migration 0041, the Mac's brief face/JARVIS-door-clips.md; any uncertain pass since 0042): an event with
+// "wantClip": true (and, when faces were seen, "people": [{"faces": [...]}]) gets "uploads" (signed upload URLs for its MP4 clip and one JPEG per person) in the
 // answer; GET ?names=1 serves names chosen in the app ({names: [{id, faces, label}]}), POST {"namesApplied": [ids]}
 // marks them applied. Clips are deleted once everyone in the pass is named or forgotten, or after 14 days.
 import { cameraEventRow, parseCameraRequest } from '../../../packages/core/src/camera/events.ts';
@@ -101,14 +101,16 @@ async function doorUploads(db: Db, body: Record<string, unknown>, inserted: { id
   const out: Upload[] = [];
   for (let index = 0; index < raw.length; index++) {
     const r = raw[index] as Record<string, unknown> | null;
-    if (!r || r.wantClip !== true || r.label !== 'unknown' || !Array.isArray(r.people) || !r.people.length) continue;
+    // Any pass the Mac is unsure about (unknown, person, or a name below 95 %) can carry a clip (0042).
+    if (!r || r.wantClip !== true) continue;
     const ts = Date.parse(String(r.ts));
     if (!Number.isFinite(ts) || now - ts > UPLOAD_MAX_AGE_MS) continue;
-    const row = inserted.find((x) => x.label === 'unknown' && Date.parse(x.ts) === ts);
+    const want = typeof r.label === 'string' ? r.label.trim().toLowerCase() : '';
+    const row = inserted.find((x) => x.label.toLowerCase() === want && Date.parse(x.ts) === ts);
     if (!row) continue; // a re-sent batch: nothing new stored, no media wanted
     const day = new Date(ts + 7 * 3_600_000).toISOString().slice(0, 10);
     const clipPath = `${day}/${row.id}.mp4`;
-    const people = (r.people as unknown[]).slice(0, 10).map((p, k) => {
+    const people = (Array.isArray(r.people) ? (r.people as unknown[]) : []).slice(0, 10).map((p, k) => {
       const faces = Array.isArray((p as { faces?: unknown })?.faces) ? ((p as { faces: unknown[] }).faces.map(String).filter((f) => FACE_ID.test(f)).slice(0, 20)) : [];
       return { faces, snapshot: `${day}/${row.id}-p${k}.jpg`, label: null };
     });
@@ -129,11 +131,12 @@ let lastPrune = 0;
 async function pruneDoorClips(db: Db, now: number): Promise<void> {
   if (now - lastPrune < 60 * 60_000) return;
   lastPrune = now;
-  const { data, error } = await db.from('camera_events').select('id,ts,clip_path,people').not('clip_path', 'is', null).limit(500);
+  const { data, error } = await db.from('camera_events').select('id,ts,clip_path,people,answered').not('clip_path', 'is', null).limit(500);
   if (error) throw new Error(error.message);
-  for (const r of (data ?? []) as { id: number; ts: string; clip_path: string; people: { snapshot?: string; label?: string | null }[] | null }[]) {
+  for (const r of (data ?? []) as { id: number; ts: string; clip_path: string; answered: string | null; people: { snapshot?: string; label?: string | null }[] | null }[]) {
     const people = r.people ?? [];
-    const done = people.length > 0 && people.every((p) => !!p.label);
+    // Answered: every face named, or the pass named as a whole (label_door_pass, 0042).
+    const done = !!r.answered || (people.length > 0 && people.every((p) => !!p.label));
     if (!done && now - Date.parse(r.ts) < DOOR_RETENTION_MS) continue;
     const paths = [r.clip_path, ...people.map((p) => p.snapshot).filter((s): s is string => !!s)];
     const rm = await db.storage.from(DOOR_BUCKET).remove(paths);

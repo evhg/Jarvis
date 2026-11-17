@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PEOPLE } from '@sleep-lab/core';
 import { useAuth } from '@/lib/auth.tsx';
-import { doorDirection, sightingWho, useDoorActivity, type CameraSighting } from '@/lib/camera.ts';
+import { doorDirection, guestName, sightingWho, useDoorActivity, type CameraSighting } from '@/lib/camera.ts';
 import { personName, useData } from '@/lib/data/context.tsx';
 import { supabaseClient } from '@/lib/data/supabase.ts';
 import { dayLabel, hm, ictDate } from '@/lib/format.ts';
@@ -142,21 +142,46 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [other, setOther] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
+  // k = -1: no face snapshot in this pass, so the pass is named as a whole (label_door_pass, 0042).
   const name = async (k: number, label: string) => {
     setBusy(k);
     setMsg(null);
-    const { error } = await supabaseClient().rpc('name_door_face', { p_event_id: Number(e.id), p_person: k, p_label: label });
+    const { error } =
+      k < 0
+        ? await supabaseClient().rpc('label_door_pass', { p_event_id: Number(e.id), p_label: label })
+        : await supabaseClient().rpc('name_door_face', { p_event_id: Number(e.id), p_person: k, p_label: label });
     setBusy(null);
     if (error) return setMsg(/lower-case/i.test(error.message) ? 'Use letters, digits, - or _ for the name.' : error.message);
     onNamed();
   };
-  const labelText = (l: string) => (l === 'a' ? 'Cath' : l === 'b' ? 'Erik' : l === 'forget' ? 'Don’t know' : l);
+  const labelText = (l: string) => (l === 'a' ? 'Cath' : l === 'b' ? 'Erik' : l === 'forget' ? 'Don’t know' : guestName(l));
   return (
     <span style={{ display: 'block', marginTop: 8 }}>
       {e.clipPath && urls[e.clipPath] && (
         // eslint-disable-next-line jsx-a11y/media-has-caption
         <video src={urls[e.clipPath]} playsInline muted controls preload="metadata" style={{ display: 'block', width: '100%', maxWidth: 420, borderRadius: 12, background: '#000' }} />
       )}
+      {!people.length &&
+        (e.answered ? (
+          <span className="sec" style={{ display: 'block', marginTop: 8 }}>Named: {labelText(e.answered)}</span>
+        ) : (
+          <span style={{ display: 'block', marginTop: 10 }}>
+            <span className="sec" style={{ display: 'block', marginBottom: 6 }}>
+              {e.personId && e.confidence !== null ? `Jarvis thinks this is ${labelText(e.personId)} (${Math.round(e.confidence * 100)} % sure). Who was it?` : 'No clear face. Who was it?'}
+            </span>
+            <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <Chip disabled={busy === -1} onClick={() => void name(-1, 'a')}>Cath</Chip>
+              <Chip disabled={busy === -1} onClick={() => void name(-1, 'b')}>Erik</Chip>
+              <Chip disabled={busy === -1} onClick={() => void name(-1, 'forget')}>Don’t know</Chip>
+            </span>
+            <span style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <Input aria-label="Someone else: name" placeholder="Someone else: name" value={other[-1] ?? ''} onChange={(ev) => setOther({ ...other, [-1]: ev.target.value })} style={{ flex: 1, minWidth: 0 }} />
+              <Button size="sm" disabled={busy === -1 || !(other[-1] ?? '').trim()} onClick={() => void name(-1, (other[-1] ?? '').trim().toLowerCase().replace(/\s+/g, '-'))}>
+                Save
+              </Button>
+            </span>
+          </span>
+        ))}
       {people.map((p, k) => (
         <span key={k} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 10 }}>
           {p.snapshot && urls[p.snapshot] ? (
