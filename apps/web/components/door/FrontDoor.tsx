@@ -6,7 +6,9 @@
  *                  (b) their phone's presence (public.presence_latest, which maps Cath to Erik's phone). Each person:
  *                  { state: 'home' | 'away' | null, since, via: 'door' | 'phone' }.
  *   <HomeNow>      one line per person ("Erik · home since 18:43 (front door)") plus when each last left and came back.
- *   <DoorTimeline> today's passes, newest first: time, who, Arriving / Leaving / Seen; unknown faces marked.
+ *   <DoorTimeline> today's passes, newest first: time, who, Arriving / Leaving / Seen; unknown faces marked. The Mac's
+ *                  confidence is a raw face similarity, not a probability, so it is never shown as a percentage; a
+ *                  named pass that came with a clip is one the Mac wasn't sure about (its 95 % rule).
  *   <WhoWasIt>     an unknown pass with a clip (migration 0041): the clip, a snapshot per person and Cath / Erik /
  *                  Someone else / Don't know; the choice goes to the Mac (face_names) so it learns the face.
  */
@@ -167,7 +169,7 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
         ) : (
           <span style={{ display: 'block', marginTop: 10 }}>
             <span className="sec" style={{ display: 'block', marginBottom: 6 }}>
-              {e.personId && e.confidence !== null ? `Jarvis thinks this is ${labelText(e.personId)} (${Math.round(e.confidence * 100)} % sure). Who was it?` : 'No clear face. Who was it?'}
+              {e.label !== 'person' && e.label !== 'unknown' ? `Jarvis thinks this is ${labelText(e.label)}, but isn’t sure. Who was it?` : 'No clear face. Who was it?'}
             </span>
             <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <Chip disabled={busy === -1} onClick={() => void name(-1, 'a')}>Cath</Chip>
@@ -250,7 +252,7 @@ export function DoorTimeline() {
             ),
             detail: (
               <>
-                {[ictDate(e.ts) !== ictDate(Date.now()) ? dayLabel(ictDate(e.ts)) : null, e.confidence !== null ? `${Math.round(e.confidence * 100)} % sure` : null, e.durationS ? `${e.durationS} s in view` : null]
+                {[ictDate(e.ts) !== ictDate(Date.now()) ? dayLabel(ictDate(e.ts)) : null, e.clipPath && !e.answered && e.label !== 'person' && e.label !== 'unknown' ? 'not sure' : null, e.durationS ? `${e.durationS} s in view` : null]
                   .filter(Boolean)
                   .join(' · ')}
                 {real && (e.clipPath || e.people?.length) ? <WhoWasIt e={e} onNamed={() => setNonce((n) => n + 1)} /> : null}
