@@ -120,6 +120,35 @@ export function useDoorActivity(days = 1, nonce = 0): { real: boolean; events: C
   const real = auth.status === 'signed-in' && !!auth.probe?.member && mode !== 'sim';
   const [events, setEvents] = useState<CameraSighting[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Live (migration 0043): a pass, its clip arriving or a name chosen elsewhere refetches the list; as a backstop also
+  // every 60 s while the tab is visible and whenever it becomes visible again.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!real) return;
+    const bump = () => setTick((n) => n + 1);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const soon = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(bump, 800); // a pass often arrives as a few writes (row, clip, people) in quick succession
+    };
+    const channel = supabaseClient()
+      .channel('door-events')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'camera_events', filter: 'camera=eq.entrance' }, soon)
+      .subscribe();
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') bump();
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') bump();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      if (timer) clearTimeout(timer);
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      void supabaseClient().removeChannel(channel);
+    };
+  }, [real]);
   useEffect(() => {
     let alive = true;
     setError(null);
@@ -148,7 +177,7 @@ export function useDoorActivity(days = 1, nonce = 0): { real: boolean; events: C
     return () => {
       alive = false;
     };
-  }, [real, days, nonce]);
+  }, [real, days, nonce, tick]);
   return { real, events, error };
 }
 
