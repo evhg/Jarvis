@@ -240,19 +240,45 @@ function Player({ live }: { live: boolean }) {
   const { url, error } = useCameraUrl(live);
   // Always 3K (2026-11-15: "make sure it's always in 3k"); the low-data stream is no longer offered.
   const { embed, error: ticketError } = useCameraEmbed(url, STREAM_HD, live);
+  // 2026-11-19: a player left open froze after a camera restart (it reboots every ~11 min) and never asked again.
+  // Reload it when the tab comes back after a minute away or the network returns, every 30 min while open, and on tap.
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 60_000) setReload((n) => n + 1);
+    };
+    const onOnline = () => setReload((n) => n + 1);
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setReload((n) => n + 1);
+    }, 30 * 60_000);
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('online', onOnline);
+      window.clearInterval(id);
+    };
+  }, []);
 
   return (
     <>
       <div className={s.playerHead}>
         <h3 className="label">Live video</h3>
-        <span className="sec">3K</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="sec">3K</span>
+          <Button size="sm" variant="secondary" onClick={() => setReload((n) => n + 1)}>
+            Reconnect
+          </Button>
+        </span>
       </div>
       {url === undefined || embed === undefined ? (
         <Skeleton h={320} r="lg" />
       ) : embed ? (
         <div className={sys.camera}>
           <iframe
-            key={embed}
+            key={`${embed}#${reload}`}
             className={sys.cameraFrame}
             src={embed}
             title="Front door camera, live"
