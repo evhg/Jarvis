@@ -131,8 +131,10 @@ export function useDoorActivity(days = 1, nonce = 0): { real: boolean; events: C
       if (timer) clearTimeout(timer);
       timer = setTimeout(bump, 800); // a pass often arrives as a few writes (row, clip, people) in quick succession
     };
+    // A unique name per hook: supabase-js returns the same channel for the same name, and adding a listener to an
+    // already-subscribed channel throws (HomeNow and DoorTimeline both use this hook on one page).
     const channel = supabaseClient()
-      .channel('door-events')
+      .channel(`door-events-${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'camera_events', filter: 'camera=eq.entrance' }, soon)
       .subscribe();
     const poll = setInterval(() => {
