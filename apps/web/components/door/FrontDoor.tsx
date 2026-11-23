@@ -136,7 +136,42 @@ function useDoorMedia(paths: string[]): Record<string, string> {
   return urls;
 }
 
-/** "Who was it?": the clip, a snapshot per person, and the name buttons. */
+/** One spelling per person: the app's guest labels folded together (2026-11-23). */
+export function canonicalLabel(label: string): string {
+  const l = label.trim().toLowerCase().replace(/\s+/g, '-');
+  if (l === 'cath') return 'a';
+  if (l === 'erik') return 'b';
+  if (/^(our-)?nanny(-p-?rung)?$/.test(l) || l === 'p-rung') return 'nanny';
+  return l;
+}
+
+/** Everyone named at the door before (face_names), most-named first, without Cath, Erik and pairs. */
+function useKnownGuests(): string[] {
+  const [names, setNames] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void supabaseClient()
+      .from('face_names')
+      .select('label')
+      .limit(1000)
+      .then(({ data }) => {
+        if (!alive || !data) return;
+        const n = new Map<string, number>();
+        for (const r of data as { label: string }[]) {
+          const l = canonicalLabel(r.label);
+          if (l === 'a' || l === 'b' || l === 'forget' || l.includes('-and-')) continue;
+          n.set(l, (n.get(l) ?? 0) + 1);
+        }
+        setNames([...n.entries()].sort((x, y) => y[1] - x[1]).map(([l]) => l));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return names;
+}
+
+/** "Who was it?": the clip, a snapshot per person, and one-tap names (Cath, Erik, everyone named before). */
 function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
   const people = e.people ?? [];
   const paths = [e.clipPath, ...people.map((p) => p.snapshot)].filter((p): p is string => !!p);
@@ -144,8 +179,10 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [other, setOther] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
+  const guests = useKnownGuests();
   // k = -1: no face snapshot in this pass, so the pass is named as a whole (label_door_pass, 0042).
-  const name = async (k: number, label: string) => {
+  const name = async (k: number, raw: string) => {
+    const label = canonicalLabel(raw);
     setBusy(k);
     setMsg(null);
     const { error } =
@@ -174,11 +211,16 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
             <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <Chip disabled={busy === -1} onClick={() => void name(-1, 'a')}>Cath</Chip>
               <Chip disabled={busy === -1} onClick={() => void name(-1, 'b')}>Erik</Chip>
+              {guests.map((g) => (
+                <Chip key={g} disabled={busy === -1} onClick={() => void name(-1, g)}>
+                  {guestName(g)}
+                </Chip>
+              ))}
               <Chip disabled={busy === -1} onClick={() => void name(-1, 'forget')}>Don’t know</Chip>
             </span>
             <span style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <Input aria-label="Someone else: name" placeholder="Someone else: name" value={other[-1] ?? ''} onChange={(ev) => setOther({ ...other, [-1]: ev.target.value })} style={{ flex: 1, minWidth: 0 }} />
-              <Button size="sm" disabled={busy === -1 || !(other[-1] ?? '').trim()} onClick={() => void name(-1, (other[-1] ?? '').trim().toLowerCase().replace(/\s+/g, '-'))}>
+              <Button size="sm" disabled={busy === -1 || !(other[-1] ?? '').trim()} onClick={() => void name(-1, other[-1] ?? '')}>
                 Save
               </Button>
             </span>
@@ -200,6 +242,11 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
                 <span style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   <Chip disabled={busy === k} onClick={() => void name(k, 'a')}>Cath</Chip>
                   <Chip disabled={busy === k} onClick={() => void name(k, 'b')}>Erik</Chip>
+                  {guests.map((g) => (
+                    <Chip key={g} disabled={busy === k} onClick={() => void name(k, g)}>
+                      {guestName(g)}
+                    </Chip>
+                  ))}
                   <Chip disabled={busy === k} onClick={() => void name(k, 'forget')}>Don’t know</Chip>
                 </span>
                 <span style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -210,7 +257,7 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
                     onChange={(ev) => setOther({ ...other, [k]: ev.target.value })}
                     style={{ flex: 1, minWidth: 0 }}
                   />
-                  <Button size="sm" disabled={busy === k || !(other[k] ?? '').trim()} onClick={() => void name(k, (other[k] ?? '').trim().toLowerCase().replace(/\s+/g, '-'))}>
+                  <Button size="sm" disabled={busy === k || !(other[k] ?? '').trim()} onClick={() => void name(k, other[k] ?? '')}>
                     Save
                   </Button>
                 </span>
