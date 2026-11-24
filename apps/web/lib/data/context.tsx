@@ -89,6 +89,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     progress: 'Simulating 90 nights…',
   });
   const [preview, setPreview] = useState<Dataset | null>(null);
+  // Retries after a dropped connection (iOS "Load failed" when the PWA wakes from a notification): bumping it reloads.
+  const [attempt, setAttempt] = useState(0);
+  const [kick, setKick] = useState(0);
   const [date, setDate] = useState<string | null>(null);
   const [names, setNames] = usePref<Record<string, string>>('names', {});
   const setPersonName = useCallback(
@@ -99,8 +102,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (pending) return;
     let alive = true;
-    setState((s) => ({ ...s, status: 'loading', error: null, progress: sourceKind === 'sim' ? 'Simulating 90 nights…' : 'Connecting…' }));
-    setPreview(null);
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    setState((s) => ({ ...s, status: 'loading', error: null, progress: attempt > 0 ? 'Reconnecting…' : sourceKind === 'sim' ? 'Simulating 90 nights…' : 'Connecting…' }));
+    if (attempt === 0) setPreview(null);
     source
       .loadDataset(
         (progress) => alive && setState((s) => (s.status === 'loading' ? { ...s, progress } : s)),
@@ -122,12 +126,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .catch((e: unknown) => {
         if (!alive) return;
         const error = e instanceof Error ? e.message : String(e);
-        setState({ status: 'error', dataset: null, error, progress: `Couldn't load data (${error}). Change the source under System.` });
+        // A network drop (Safari "Load failed", Chrome "Failed to fetch") is retried a few times before it shows.
+        if (/load failed|failed to fetch|network|aborted|timed? ?out/i.test(error) && attempt < 4) {
+          setState((s) => ({ ...s, status: 'loading', progress: 'Reconnecting…' }));
+          retry = setTimeout(() => alive && setAttempt((a) => a + 1), [1500, 3000, 6000, 12000][attempt]);
+          return;
+        }
+        setState({ status: 'error', dataset: null, error, progress: `Couldn't load data (${error}). Switch away and back to Jarvis to retry.` });
       });
     return () => {
       alive = false;
+      if (retry) clearTimeout(retry);
     };
-  }, [source, sourceKind, pending]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, sourceKind, pending, attempt, kick]);
+
+  // After an error, coming back to the app or back online tries again from scratch.
+  useEffect(() => {
+    if (state.status !== 'error') return;
+    const again = () => {
+      if (document.visibilityState !== 'visible') return;
+      setAttempt(0);
+      setKick((k) => k + 1);
+    };
+    document.addEventListener('visibilitychange', again);
+    window.addEventListener('online', again);
+    return () => {
+      document.removeEventListener('visibilitychange', again);
+      window.removeEventListener('online', again);
+    };
+  }, [state.status]);
 
   // Names flow everywhere through dataset.people; an empty override falls back to the source's name.
   const applyNames = useCallback(
