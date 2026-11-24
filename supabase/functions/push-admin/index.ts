@@ -4,7 +4,8 @@
 //                                          applicationServerKey). Creates the key pair on first call.
 //   POST {"action":"ensure-keys"}        → {"publicKey", "created"} (cron secret / service key)
 //   POST {"action":"status"}             → {"publicKey", "subscriptions", "subject"}
-//   POST {"action":"test", "title"?, "body"?} → sends a test notification to every subscription
+//   POST {"action":"test", "title"?, "body"?, "path"?, "tag"?} → sends a notification to every subscription;
+//                                          a tap opens `path` (an app path such as "/live", default "/")
 // The same public key is in household_settings.vapid_public_key (members can read it).
 import { requireCron } from '../_shared/auth.ts';
 import { HttpError, json, readJson, serve } from '../_shared/http.ts';
@@ -36,8 +37,8 @@ serve(async (req) => {
       const r = await pushToAll(db, {
         title: typeof body.title === 'string' ? body.title.slice(0, 80) : 'Jarvis',
         body: typeof body.body === 'string' ? body.body.slice(0, 200) : 'Test notification: Web Push works.',
-        navigate: `${appUrl()}/`,
-        tag: 'test',
+        navigate: `${appUrl()}${typeof body.path === 'string' && /^\/[\w\-/?=&#.]*$/.test(body.path) ? body.path : '/'}`,
+        tag: typeof body.tag === 'string' && body.tag ? body.tag.slice(0, 60) : 'test',
       }, 'test', { urgency: 'normal', ttlSec: 600 });
       return json({ ok: true, push: r });
     }
