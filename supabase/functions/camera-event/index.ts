@@ -135,9 +135,8 @@ async function pruneDoorClips(db: Db, now: number): Promise<void> {
   if (error) throw new Error(error.message);
   for (const r of (data ?? []) as { id: number; ts: string; clip_path: string; answered: string | null; people: { snapshot?: string; label?: string | null }[] | null }[]) {
     const people = r.people ?? [];
-    // Answered: every face named, or the pass named as a whole (label_door_pass, 0042).
-    const done = !!r.answered || (people.length > 0 && people.every((p) => !!p.label));
-    if (!done && now - Date.parse(r.ts) < DOOR_RETENTION_MS) continue;
+    // Kept for 14 days even once named, so a name can be checked and changed in the app (2026-11-24).
+    if (now - Date.parse(r.ts) < DOOR_RETENTION_MS) continue;
     const paths = [r.clip_path, ...people.map((p) => p.snapshot).filter((s): s is string => !!s)];
     const rm = await db.storage.from(DOOR_BUCKET).remove(paths);
     if (rm.error) continue;

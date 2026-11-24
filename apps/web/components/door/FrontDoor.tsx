@@ -180,11 +180,18 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
   const [other, setOther] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const guests = useKnownGuests();
-  const [editing, setEditing] = useState<Record<number, boolean>>({});
+  const undo = async (k: number) => {
+    setBusy(k);
+    setMsg(null);
+    const { error } = await supabaseClient().rpc('undo_door_name', { p_event_id: Number(e.id), p_person: k });
+    setBusy(null);
+    if (error) return setMsg(error.message);
+    onNamed();
+  };
   const change = (k: number) => (
-    <button type="button" className="sec" onClick={() => setEditing({ ...editing, [k]: true })} style={{ background: 'none', border: 0, padding: 0, marginLeft: 8, textDecoration: 'underline', cursor: 'pointer', font: 'inherit' }}>
-      Change
-    </button>
+    <Button size="sm" disabled={busy === k} onClick={() => void undo(k)} style={{ marginLeft: 10 }}>
+      Undo
+    </Button>
   );
   // k = -1: no face snapshot in this pass, so the pass is named as a whole (label_door_pass, 0042).
   const name = async (k: number, raw: string) => {
@@ -197,7 +204,6 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
         ? await supabaseClient().rpc('label_door_pass', { p_event_id: Number(e.id), p_label: label })
         : await supabaseClient().rpc('name_door_face', { p_event_id: Number(e.id), p_person: k, p_label: label });
     setBusy(null);
-    if (!error) setEditing({ ...editing, [k]: false });
     if (error) return setMsg(/lower-case/i.test(error.message) ? 'Use letters, digits, - or _ for the name.' : error.message);
     onNamed();
   };
@@ -209,7 +215,7 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
         <video src={urls[e.clipPath]} playsInline muted controls preload="metadata" style={{ display: 'block', width: '100%', maxWidth: 420, borderRadius: 12, background: '#000' }} />
       )}
       {!people.length &&
-        (e.answered && !editing[-1] ? (
+        (e.answered ? (
           <span className="sec" style={{ display: 'block', marginTop: 8 }}>Named: {labelText(e.answered)}{change(-1)}</span>
         ) : (
           <span style={{ display: 'block', marginTop: 10 }}>
@@ -243,7 +249,7 @@ function WhoWasIt({ e, onNamed }: { e: CameraSighting; onNamed: () => void }) {
             <span style={{ width: 64, height: 64, borderRadius: 12, background: 'var(--surface-2, #222)', flex: 'none' }} />
           )}
           <span style={{ display: 'block', flex: 1, minWidth: 0 }}>
-            {p.label && !editing[k] ? (
+            {p.label ? (
               <span className="sec">Named: {labelText(p.label)}{change(k)}</span>
             ) : (
               <>
