@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: 'Jarvis', statusBarStyle: 'black-translucent' },
   formatDetection: { telephone: false },
   icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }, { url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
+    icon: [{ url: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
     apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
   },
   other: { 'apple-mobile-web-app-capable': 'yes' },

@@ -1,7 +1,7 @@
 // Minimal service worker: cache the app shell so the home-screen app opens offline.
 // Navigations are network-first (fresh data), static assets cache-first.
-const CACHE = 'sleeplab-shell-v2';
-const SHELL = ['/', '/room', '/body', '/lab', '/settings', '/icon.svg', '/icon-192.png', '/manifest.webmanifest'];
+const CACHE = 'jarvis-shell-v3';
+const SHELL = ['/', '/room', '/body', '/lab', '/settings', '/icon-192.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
